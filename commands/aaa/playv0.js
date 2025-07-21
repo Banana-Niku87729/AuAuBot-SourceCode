@@ -34,9 +34,6 @@ module.exports = {
     try {
       console.log("コマンド実行開始");
 
-      // **重要: まず即座に応答を送信**
-      await interaction.deferReply();
-
       // ユーザーがボイスチャンネルに接続しているかチェック
       let voiceChannel = null;
 
@@ -50,7 +47,7 @@ module.exports = {
       }
 
       if (!voiceChannel) {
-        return await interaction.editReply(
+        return await interaction.reply(
           "ボイスチャンネルに接続してから使ってね！",
         );
       }
@@ -58,7 +55,7 @@ module.exports = {
       // ボットの権限をチェック
       const permissions = voiceChannel.permissionsFor(interaction.client.user);
       if (!permissions.has("Connect") || !permissions.has("Speak")) {
-        return await interaction.editReply(
+        return await interaction.reply(
           "ボイスチャンネルに接続または発言する権限がありません！",
         );
       }
@@ -85,74 +82,48 @@ module.exports = {
       const isSupported = supportedSites.some((site) => url.includes(site));
 
       if (!isSupported) {
-        return await interaction.editReply(
+        return await interaction.reply(
           "対応していないサイトです。YouTube、ニコニコ動画、TikTok、SoundCloudなどのURLを入力してね！",
         );
       }
 
-      await interaction.editReply("音楽を準備中...🎵");
+      await interaction.reply("音楽を準備中...🎵");
 
       // TikTokかどうかを判定
       const isTikTok =
         url.includes("tiktok.com") || url.includes("vt.tiktok.com");
-      const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
-
-      // YouTube用の基本オプション
-      const baseYouTubeOptions = {
-        dumpSingleJson: true,
-        noWarnings: true,
-        noCallHome: true,
-        noCheckCertificate: true,
-        preferFreeFormats: true,
-        noPlaylist: true,
-        ignoreErrors: true,
-        // YouTube対策のための追加オプション
-        addHeader: [
-          "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept-Language:en-US,en;q=0.9",
-          "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        ],
-        cookies: [],
-        retries: 3, // リトライ回数を減らして高速化
-        fragmentRetries: 3, // フラグメントリトライも減らす
-        skipUnavailableFragments: true,
-        keepFragments: false,
-        // geo-bypass
-        geoBypass: true,
-        // IPv4を強制
-        forceIpv4: true,
-        // タイムアウト設定を追加
-        socketTimeout: "15",
-        proxy: "http://47.74.46.81:11310",
-      };
 
       // TikTokの場合は特別な処理
       if (isTikTok) {
         try {
-          const tiktokOptions = {
-            ...baseYouTubeOptions,
-            // TikTok特有のオプション
-            referer: "https://www.tiktok.com/",
-            addHeader: [
-              "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Referer:https://www.tiktok.com/",
-            ],
-            socketTimeout: "10", // TikTokは短めに設定
-          };
-
+          // TikTokの動画情報取得（より短いタイムアウト）
           const info = await Promise.race([
-            youtubedl(url, tiktokOptions),
+            youtubedl(url, {
+              dumpSingleJson: true,
+              noWarnings: true,
+              noCallHome: true,
+              noCheckCertificate: true,
+              preferFreeFormats: true,
+              noPlaylist: true,
+              ignoreErrors: true,
+              // TikTok用の追加オプション
+              addHeader: [
+                "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+              ],
+              referer: "https://www.tiktok.com/",
+            }),
             new Promise((_, reject) =>
               setTimeout(
                 () =>
                   reject(
                     new Error("TikTok動画情報の取得がタイムアウトしました"),
                   ),
-                15000, // タイムアウト時間を短縮
+                15000, // TikTokは15秒でタイムアウト
               ),
             ),
           ]);
 
+          // TikTok動画の検証
           if (!info || (!info.formats && !info.url)) {
             throw new Error("TikTok動画の情報を取得できませんでした");
           }
@@ -181,6 +152,7 @@ module.exports = {
         } catch (tiktokError) {
           console.error("TikTok処理エラー:", tiktokError);
 
+          // TikTokエラーの詳細な処理
           let errorMessage = "TikTok動画の再生に失敗しました。";
 
           if (tiktokError.message.includes("タイムアウト")) {
@@ -205,93 +177,46 @@ module.exports = {
           return await interaction.editReply(errorMessage);
         }
       } else {
-        // YouTube, ニコニコ動画などの通常処理
+        // 通常の動画情報を取得（YouTube、ニコニコ動画など）
         console.log("動画情報を取得中...");
-
-        let options = baseYouTubeOptions;
-
-        // YouTubeの場合、さらに追加のオプション
-        if (isYouTube) {
-          options = {
-            ...baseYouTubeOptions,
+        const info = await Promise.race([
+          youtubedl(url, {
+            dumpSingleJson: true,
+            noWarnings: true,
+            noCallHome: true,
+            noCheckCertificate: true,
+            preferFreeFormats: true,
             youtubeSkipDashManifest: true,
-            // age-gateをバイパス
-            ageLimitBypass: true,
-            // より詳細なUser-Agent
-            addHeader: [
-              "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Accept-Language:en-US,en;q=0.9,ja;q=0.8",
-              "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-              "Accept-Encoding:gzip, deflate, br",
-              "DNT:1",
-              "Connection:keep-alive",
-            ],
-            socketTimeout: "20", // YouTube用に少し長めに設定
-          };
-        }
-
-        try {
-          const info = await Promise.race([
-            youtubedl(url, options),
-            new Promise((_, reject) =>
-              setTimeout(
-                () => reject(new Error("動画情報の取得がタイムアウトしました")),
-                25000, // タイムアウト時間を短縮
-              ),
+            noPlaylist: true,
+            ignoreErrors: true,
+          }),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("動画情報の取得がタイムアウトしました")),
+              30000,
             ),
-          ]);
+          ),
+        ]);
 
-          const title = info.title || "タイトル不明";
-          const thumbnail = info.thumbnail || info.thumbnails?.[0]?.url || null;
-          const duration = info.duration ? Math.floor(info.duration) : null;
-          const uploader = info.uploader || info.channel || "投稿者不明";
+        const title = info.title || "タイトル不明";
+        const thumbnail = info.thumbnail || info.thumbnails?.[0]?.url || null;
+        const duration = info.duration ? Math.floor(info.duration) : null;
+        const uploader = info.uploader || info.channel || "投稿者不明";
 
-          console.log("動画情報取得完了:", title);
+        console.log("動画情報取得完了:", title);
 
-          const songInfo = {
-            url,
-            title,
-            thumbnail,
-            duration,
-            uploader,
-            requester: interaction.user.id,
-            requesterName: interaction.user.displayName,
-            isTikTok: false,
-          };
+        const songInfo = {
+          url,
+          title,
+          thumbnail,
+          duration,
+          uploader,
+          requester: interaction.user.id,
+          requesterName: interaction.user.displayName,
+          isTikTok: false,
+        };
 
-          await this.addToQueueAndPlay(interaction, voiceChannel, songInfo);
-        } catch (infoError) {
-          console.error("動画情報取得エラー:", infoError);
-
-          // より詳細なエラーハンドリング
-          let errorMessage = "動画情報の取得に失敗しました。";
-
-          if (
-            infoError.stderr &&
-            infoError.stderr.includes("This content isn't available")
-          ) {
-            errorMessage =
-              "この動画は利用できません。地域制限、年齢制限、または削除された可能性があります。";
-          } else if (
-            infoError.stderr &&
-            infoError.stderr.includes("Video unavailable")
-          ) {
-            errorMessage = "動画が見つかりません。URLを確認してください。";
-          } else if (
-            infoError.stderr &&
-            infoError.stderr.includes("Private video")
-          ) {
-            errorMessage = "プライベート動画は再生できません。";
-          } else if (infoError.message.includes("タイムアウト")) {
-            errorMessage =
-              "動画の読み込みに時間がかかりすぎています。別のURLを試してください。";
-          } else if (isYouTube) {
-            errorMessage =
-              "YouTube動画の処理に失敗しました。動画が制限されているか、一時的な問題の可能性があります。";
-          }
-
-          return await interaction.editReply(errorMessage);
-        }
+        await this.addToQueueAndPlay(interaction, voiceChannel, songInfo);
       }
     } catch (error) {
       console.error("音楽再生エラー:", error);
@@ -301,10 +226,7 @@ module.exports = {
       if (error.message.includes("タイムアウト")) {
         errorMessage =
           "動画の読み込みに時間がかかりすぎています。別のURLを試してください。";
-      } else if (
-        error.message.includes("Video unavailable") ||
-        error.message.includes("This content isn't available")
-      ) {
+      } else if (error.message.includes("Video unavailable")) {
         errorMessage = "この動画は利用できません。別のURLを試してください。";
       } else if (error.message.includes("Private video")) {
         errorMessage = "プライベート動画は再生できません。";
@@ -313,23 +235,9 @@ module.exports = {
       }
 
       try {
-        // インタラクションがまだ存在し、応答可能かチェック
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply(errorMessage);
-        } else {
-          await interaction.editReply(errorMessage);
-        }
+        await interaction.editReply(errorMessage);
       } catch (replyError) {
         console.error("リプライエラー:", replyError);
-        // フォローアップメッセージを試行
-        try {
-          await interaction.followUp({
-            content: errorMessage,
-            ephemeral: true,
-          });
-        } catch (followUpError) {
-          console.error("フォローアップエラー:", followUpError);
-        }
       }
     }
   },
@@ -337,67 +245,57 @@ module.exports = {
   async addToQueueAndPlay(interaction, voiceChannel, songInfo) {
     const guildId = interaction.guild.id;
 
-    try {
-      // キューの初期化
-      if (!global.musicQueues.has(guildId)) {
-        global.musicQueues.set(guildId, []);
-      }
+    // キューの初期化
+    if (!global.musicQueues.has(guildId)) {
+      global.musicQueues.set(guildId, []);
+    }
 
-      const queue = global.musicQueues.get(guildId);
-      const isPlaying =
-        global.musicPlayers.has(guildId) &&
-        global.musicPlayers.get(guildId).state.status ===
-          AudioPlayerStatus.Playing;
+    const queue = global.musicQueues.get(guildId);
+    const isPlaying =
+      global.musicPlayers.has(guildId) &&
+      global.musicPlayers.get(guildId).state.status ===
+        AudioPlayerStatus.Playing;
 
-      // キューに追加
-      queue.push(songInfo);
+    // キューに追加
+    queue.push(songInfo);
 
-      if (isPlaying) {
-        // 既に再生中の場合はキューに追加のみ
-        const embed = new EmbedBuilder()
-          .setTitle("🎵 キューに追加されました")
-          .setDescription(`**[${songInfo.title}](${songInfo.url})**`)
-          .setColor(0x0099ff)
-          .addFields(
-            { name: "投稿者", value: songInfo.uploader, inline: true },
-            {
-              name: "リクエスト者",
-              value: `<@${interaction.user.id}>`,
-              inline: true,
-            },
-            { name: "キュー位置", value: `${queue.length}番目`, inline: true },
-          )
-          .setFooter({
-            text: `キューに${queue.length}曲待機中`,
-          });
-
-        if (songInfo.thumbnail) {
-          embed.setThumbnail(songInfo.thumbnail);
-        }
-
-        if (songInfo.duration) {
-          const minutes = Math.floor(songInfo.duration / 60);
-          const seconds = songInfo.duration % 60;
-          embed.addFields({
-            name: "再生時間",
-            value: `${minutes}:${seconds.toString().padStart(2, "0")}`,
+    if (isPlaying) {
+      // 既に再生中の場合はキューに追加のみ
+      const embed = new EmbedBuilder()
+        .setTitle("🎵 キューに追加されました")
+        .setDescription(`**[${songInfo.title}](${songInfo.url})**`)
+        .setColor(0x0099ff)
+        .addFields(
+          { name: "投稿者", value: songInfo.uploader, inline: true },
+          {
+            name: "リクエスト者",
+            value: `<@${interaction.user.id}>`,
             inline: true,
-          });
-        }
+          },
+          { name: "キュー位置", value: `${queue.length}番目`, inline: true },
+        )
+        .setFooter({
+          text: `キューに${queue.length}曲待機中`,
+        });
 
-        await interaction.editReply({ content: null, embeds: [embed] });
-      } else {
-        // 初回再生または再生停止中の場合
-        await this.playNextSong(interaction, voiceChannel);
+      if (songInfo.thumbnail) {
+        embed.setThumbnail(songInfo.thumbnail);
       }
-    } catch (error) {
-      console.error("キュー追加エラー:", error);
 
-      try {
-        await interaction.editReply("キューへの追加中にエラーが発生しました。");
-      } catch (replyError) {
-        console.error("エラーメッセージ送信失敗:", replyError);
+      if (songInfo.duration) {
+        const minutes = Math.floor(songInfo.duration / 60);
+        const seconds = songInfo.duration % 60;
+        embed.addFields({
+          name: "再生時間",
+          value: `${minutes}:${seconds.toString().padStart(2, "0")}`,
+          inline: true,
+        });
       }
+
+      await interaction.editReply({ content: null, embeds: [embed] });
+    } else {
+      // 初回再生または再生停止中の場合
+      await this.playNextSong(interaction, voiceChannel);
     }
   },
 
@@ -442,11 +340,10 @@ module.exports = {
           writeInfoJson: false,
           // TikTok用追加設定
           addHeader: [
-            "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
           ],
           referer: "https://www.tiktok.com/",
-          retries: 2, // リトライを減らして高速化
-          socketTimeout: "10",
+          retries: 3,
           proxy: "http://47.74.46.81:11310",
         };
 
@@ -455,57 +352,25 @@ module.exports = {
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(
             () => reject(new Error("TikTokストリーム作成タイムアウト")),
-            20000, // タイムアウト時間を短縮
+            20000,
           ),
         );
 
         stream = await Promise.race([streamPromise, timeoutPromise]);
       } else {
-        // YouTube、ニコニコ動画などの通常のストリーミング
-        const isYouTube =
-          songInfo.url.includes("youtube.com") ||
-          songInfo.url.includes("youtu.be");
-
-        if (isYouTube) {
-          streamOptions = {
-            output: "-",
-            format: "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
-            audioFormat: "wav",
-            audioQuality: "0",
-            noWarnings: true,
-            noCallHome: true,
-            noCheckCertificate: true,
-            noPlaylist: true,
-            preferFreeFormats: true,
-            ignoreErrors: true,
-            // YouTube用追加オプション
-            addHeader: [
-              "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            ],
-            geoBypass: true,
-            forceIpv4: true,
-            retries: 3, // リトライを減らす
-            fragmentRetries: 3,
-            skipUnavailableFragments: true,
-            socketTimeout: "15",
-            proxy: "http://47.74.46.81:11310",
-          };
-        } else {
-          streamOptions = {
-            output: "-",
-            format: "bestaudio/best",
-            audioFormat: "wav",
-            audioQuality: "0",
-            noWarnings: true,
-            noCallHome: true,
-            noCheckCertificate: true,
-            noPlaylist: true,
-            preferFreeFormats: true,
-            ignoreErrors: true,
-            socketTimeout: "15",
-            proxy: "http://47.74.46.81:11310",
-          };
-        }
+        streamOptions = {
+          output: "-",
+          format: "bestaudio/best",
+          audioFormat: "wav",
+          audioQuality: "0",
+          noWarnings: true,
+          noCallHome: true,
+          noCheckCertificate: true,
+          noPlaylist: true,
+          preferFreeFormats: true,
+          ignoreErrors: true,
+          proxy: "http://47.74.46.81:11310",
+        };
 
         stream = youtubedl.exec(songInfo.url, streamOptions);
       }
@@ -611,22 +476,7 @@ module.exports = {
         });
       }
 
-      // インタラクションの状態をチェックしてから応答
-      try {
-        if (interaction.deferred || interaction.replied) {
-          await interaction.editReply({ content: null, embeds: [embed] });
-        } else {
-          await interaction.reply({ embeds: [embed] });
-        }
-      } catch (interactionError) {
-        console.error("インタラクション応答エラー:", interactionError);
-        // フォローアップメッセージを試行
-        try {
-          await interaction.followUp({ embeds: [embed] });
-        } catch (followUpError) {
-          console.error("フォローアップエラー:", followUpError);
-        }
-      }
+      await interaction.editReply({ content: null, embeds: [embed] });
     } catch (error) {
       console.error("再生エラー:", error);
 
