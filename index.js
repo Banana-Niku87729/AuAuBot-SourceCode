@@ -8,14 +8,24 @@ const exclusionPath = "./exclusion_roles.json";
 const authPanel = require("./commands/aaa/auth-panel.js");
 const { Player } = require("discord-player");
 
-// スパム検知のための設定
-const SPAM_THRESHOLD_MESSAGES = 3; // 3メッセージ（テスト用に下げる）
-const SPAM_THRESHOLD_TIME_MS = 10000; // 10秒（テスト用に延長）
-const SIMILARITY_THRESHOLD = 0.6; // 閾値を下げる（テスト用）
+// スパム検知のための設定 - 既存の設定を置き換え
+const SPAM_THRESHOLD_MESSAGES = 3;
+const SPAM_THRESHOLD_TIME_MS = 10000;
+const SIMILARITY_THRESHOLD = 0.6;
 const userMessageHistory = new Map();
+
 // 語録反応用クールダウン設定
-const GOROKU_COOLDOWN_TIME = 10000; // 10秒
+const GOROKU_COOLDOWN_TIME = 10000;
 const gorokuCooldowns = new Map();
+
+// スレッドスパム検知のための設定 - 新規追加
+const THREAD_SPAM_THRESHOLD_OPERATIONS = 3; // デフォルト: 3回の操作
+const THREAD_SPAM_THRESHOLD_TIME_MS = 30000; // デフォルト: 30秒
+const THREAD_SPAM_TIMEOUT_DURATION = 600000; // デフォルト: 10分（ミリ秒）
+const userThreadHistory = new Map(); // ユーザーごとのスレッド操作履歴
+
+// グローバル設定保存用
+global.threadSpamSettings = new Map(); // サーバーごとのスレッドスパム設定
 
 // レイド対策のための設定
 const RAID_DETECTION_WINDOW = 5 * 60 * 1000; // 5分間のウィンドウ
@@ -50,6 +60,99 @@ if (fs.existsSync(exclusionPath)) {
 function resetRaidMode(guildId) {
     raidModeStatus.delete(guildId);
     console.log(`レイドモード状態をリセットしました - Guild ID: ${guildId}`);
+}
+
+// スレッドスパム検知関数 - 新規追加
+async function checkThreadSpam(member, guild) {
+    const userId = member.id;
+    const guildId = guild.id;
+    const now = Date.now();
+
+    // サーバー固有の設定を取得
+    const serverSettings = global.threadSpamSettings.get(guildId) || {
+        threshold: THREAD_SPAM_THRESHOLD_OPERATIONS,
+        timeWindow: THREAD_SPAM_THRESHOLD_TIME_MS,
+        timeoutDuration: THREAD_SPAM_TIMEOUT_DURATION,
+    };
+
+    if (!userThreadHistory.has(userId)) {
+        userThreadHistory.set(userId, []);
+    }
+
+    const history = userThreadHistory.get(userId);
+
+    // 時間枠内の操作のみを保持
+    const cleanHistory = history.filter(
+        (entry) =>
+            now - entry.timestamp < serverSettings.timeWindow &&
+            entry.guildId === guildId,
+    );
+
+    // 新しい操作を追加
+    cleanHistory.push({ timestamp: now, guildId: guildId });
+    userThreadHistory.set(userId, cleanHistory);
+
+    console.log(
+        `スレッド操作チェック: ${member.user.username} - 操作数: ${cleanHistory.length}/${serverSettings.threshold}`,
+    );
+
+    // 閾値を超えた場合
+    if (cleanHistory.length >= serverSettings.threshold) {
+        console.log(`スレッドスパム検知！ユーザー: ${member.user.username}`);
+
+        try {
+            // タイムアウトを実行
+            await member.timeout(
+                serverSettings.timeoutDuration,
+                "スレッドスパム検知による自動タイムアウト",
+            );
+
+            // ログチャンネルに通知
+            let logChannel = guild.channels.cache.find(
+                (channel) =>
+                    channel.name === "auau-log" &&
+                    channel.type === ChannelType.GuildText,
+            );
+
+            if (!logChannel) {
+                logChannel = await guild.channels.create({
+                    name: "auau-log",
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        {
+                            id: guild.roles.everyone,
+                            deny: ["ViewChannel"],
+                        },
+                        {
+                            id: client.user.id,
+                            allow: ["ViewChannel", "SendMessages"],
+                        },
+                    ],
+                    reason: "スレッドスパム検知ログ用チャンネルを作成",
+                });
+            }
+
+            const timeoutMinutes = Math.ceil(
+                serverSettings.timeoutDuration / 60000,
+            );
+            await logChannel.send(
+                `🚨 **スレッドスパム検知 & 自動タイムアウト** 🚨\n` +
+                    `ユーザー: ${member.user.username} (${member.user.id})\n` +
+                    `検知内容: ${Math.floor(serverSettings.timeWindow / 1000)}秒間に${cleanHistory.length}回のスレッド操作\n` +
+                    `タイムアウト時間: ${timeoutMinutes}分\n` +
+                    `自動的にタイムアウトしました。`,
+            );
+
+            // 履歴をクリア
+            userThreadHistory.delete(userId);
+
+            return true; // スパム検知したことを返す
+        } catch (error) {
+            console.error(`スレッドスパムタイムアウト失敗 (${userId}):`, error);
+        }
+    }
+
+    return false;
 }
 
 // スパム検知除外ロールのマップ
@@ -212,6 +315,8 @@ const MALICIOUS_APP_WORDS = [
     "discord.gg/ozeu",
     "discord.gg/ozeu-x",
 ];
+
+const matakayo = ["なんだよもう", "なんだよ", "またかよ"];
 
 // NukeBot検知のための設定
 const NUKEBOT_DETECTION_WINDOW = 2 * 60 * 1000; // 2分間のウィンドウ
@@ -516,6 +621,8 @@ function initializeExclusionRoles() {
                     profanity: new Set(roles.profanity || []),
                     inmu: new Set(roles.inmu || []),
                     link: new Set(roles.link || []),
+                    threadSpam: new Set(roles.threadSpam || []), // 新規追加
+                    profanityDetection: new Set(roles.profanityDetection || []), // 新規追加
                 };
                 global.exclusionRoles.set(guildId, convertedRoles);
                 global.spamExclusionRoles.set(guildId, convertedRoles.spam);
@@ -1005,6 +1112,64 @@ client.on(Events.ChannelDelete, async (channel) => {
     }
 });
 
+client.on(Events.ThreadCreate, async (thread) => {
+    if (!thread.ownerId) return; // システム作成スレッドは無視
+
+    const member = thread.guild.members.cache.get(thread.ownerId);
+    if (!member || member.user.bot) return; // Botは無視
+
+    // 除外ロールチェック
+    const guildId = thread.guild.id;
+    const exclusion = global.exclusionRoles?.get(guildId);
+
+    if (exclusion && exclusion.threadSpam?.size > 0) {
+        const hasExclusionRole = member.roles.cache.some((role) =>
+            exclusion.threadSpam.has(role.id),
+        );
+        if (hasExclusionRole) {
+            console.log(
+                `スレッドスパム検知をスキップ: ${member.user.username} (除外ロール所持)`,
+            );
+            return;
+        }
+    }
+
+    await checkThreadSpam(member, thread.guild);
+});
+
+// スレッド更新監視 - 新規追加
+client.on(Events.ThreadUpdate, async (oldThread, newThread) => {
+    if (!newThread.ownerId) return;
+
+    const member = newThread.guild.members.cache.get(newThread.ownerId);
+    if (!member || member.user.bot) return;
+
+    // タイトルや設定が変更された場合のみ検知
+    if (
+        oldThread.name !== newThread.name ||
+        oldThread.archived !== newThread.archived ||
+        oldThread.locked !== newThread.locked
+    ) {
+        // 除外ロールチェック
+        const guildId = newThread.guild.id;
+        const exclusion = global.exclusionRoles?.get(guildId);
+
+        if (exclusion && exclusion.threadSpam?.size > 0) {
+            const hasExclusionRole = member.roles.cache.some((role) =>
+                exclusion.threadSpam.has(role.id),
+            );
+            if (hasExclusionRole) {
+                console.log(
+                    `スレッドスパム検知をスキップ: ${member.user.username} (除外ロール所持)`,
+                );
+                return;
+            }
+        }
+
+        await checkThreadSpam(member, newThread.guild);
+    }
+});
+
 // ファイルの上部に追加
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -1479,6 +1644,11 @@ async function processNonSpamMessage(msg) {
         }
     } else if (containsAnyWord(KAIJIDANA)) {
         await msg.reply("https://i.imgur.com/kSCMoPg.jpeg");
+        gorokuCooldowns.set(userId, now);
+    } else if (containsAnyWord(matakayo)) {
+        await msg.reply(
+            "なんだよもおおおお、またかよおおおおおおおおおおお！！！！\nhttps://www.youtube.com/watch?v=KXOXuRC15QQ",
+        );
         gorokuCooldowns.set(userId, now);
     }
 }

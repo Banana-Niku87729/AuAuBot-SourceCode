@@ -29,6 +29,8 @@ module.exports = {
                 profanity: new Set(),
                 inmu: new Set(),
                 link: new Set(),
+                threadSpam: new Set(),  // 新規追加
+                profanityDetection: new Set()  // 新規追加（暴言検知用）
             };
 
             const roles = guild.roles.cache
@@ -53,9 +55,11 @@ module.exports = {
 
             const allOptions = [
                 ...makeOptionsForCategory(current.spam, "spam"),
-                ...makeOptionsForCategory(current.profanity, "profanity"),
+                ...makeOptionsForCategory(current.profanity, "profanity"), 
                 ...makeOptionsForCategory(current.inmu, "inmu"),
                 ...makeOptionsForCategory(current.link, "link"),
+                ...makeOptionsForCategory(current.threadSpam, "threadSpam"),  // 新規追加
+                ...makeOptionsForCategory(current.profanityDetection, "profanityDetection"),  // 新規追加
             ];
 
             const itemsPerPage = 25;
@@ -183,8 +187,10 @@ module.exports = {
                         dataToSave[guildId] = {
                             spam: Array.from(sets.spam),
                             profanity: Array.from(sets.profanity),
-                            inmu: Array.from(sets.inmu),
+                            inmu: Array.from(sets.inmu), 
                             link: Array.from(sets.link),
+                            threadSpam: Array.from(sets.threadSpam),  // 新規追加
+                            profanityDetection: Array.from(sets.profanityDetection),  // 新規追加
                         };
                     }
                     fs.writeFileSync(

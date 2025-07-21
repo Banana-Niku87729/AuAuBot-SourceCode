@@ -1,6 +1,6 @@
-# Netscape HTTP Cookie File
-# http://curl.haxx.se/rfc/cookie_spec.html
-# This is a generated file!  Do not edit.
+#\\tNetscape\\tHTTP\\tCookie\\tFile
+#\\thttp://curl.haxx.se/rfc/cookie_spec.html
+#\\tThis\\tis\\ta\\tgenerated\\tfile!\\t\\tDo\\tnot\\tedit.
 
 .youtube.com	TRUE	/	TRUE	1766277635	LOGIN_INFO	AFmmF2swRAIgGIX4a6pov9_m4P1cmJmqc4ZqkMlItx4a2FoPZeVuCbICIHDCYGL-V-hThEur6YYOdcBFXmTYpQOFvqpBb9NhSoPA:QUQ3MjNmekZhSDNyRm1pb0cyVTYxdXhaLUlreDFIclVtN3RlQk4tSkdYeUxSUEM5WnJHY3doM1MxZGJERUwzdy1oNlZ3cjdMMF9mZWt3UlBUVFBQMUZGVGZpLXV4RzRRcUx6UmctQmhsdXV3NzhoN2hwZUMyYkRzWXFNTHhBMDFTcFF5VkJVV2ZfWEZTT0hudFRSRUdmVFNhczc0WmZKeTNB
 .youtube.com	TRUE	/	FALSE	1772377217	ab.storage.deviceId.f9c2b69f-2136-44e0-a55a-dff72d99aa19	g%3AYaUaZwnPCDce44BT9XpYdSRyrXz1%7Ce%3Aundefined%7Cc%3A1737817217955%7Cl%3A1737817217955
