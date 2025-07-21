@@ -34,7 +34,7 @@ if (process.env[COOKIES_ENV_VAR]) {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("play")
+    .setName("play-v0")
     .setDescription("YouTubeの音楽を再生するよ")
     .addStringOption((option) =>
       option.setName("url").setDescription("YouTubeのURL").setRequired(true),
